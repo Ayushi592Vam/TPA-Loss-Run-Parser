@@ -25,7 +25,6 @@ def render_file_card(
     )
     badge_cls   = "badge-duplicate" if is_dup else "badge-unique"
     badge_lbl   = "DUPLICATE" if is_dup else "UNIQUE"
-    hash_short  = file_hash[:18] + "…" if file_hash else "—"
     n_dup_sheets = sum(1 for v in sheet_dup_info.values() if v is not None)
     dup_note = (
         "<span style='font-size:11px;color:#f5c842;font-family:var(--mono);'>⚠ Already processed</span>"
@@ -79,10 +78,6 @@ def render_file_card(
             <div class="file-stat">
               <div class="file-stat-lbl">Status</div>
               <div class="file-stat-val" style="color:{_file_status_color};">{_file_status_text}</div>
-            </div>
-            <div class="file-stat">
-              <div class="file-stat-lbl">SHA-256</div>
-              <div class="file-stat-val mono-sm">{hash_short}</div>
             </div>
           </div>
           <div class="file-card-sheets">

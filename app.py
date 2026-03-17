@@ -117,7 +117,7 @@ if st.session_state.get("last_uploaded") != uploaded.name:
     st.session_state.selected_idx  = 0
     st.session_state.focus_field   = None
     for key in list(st.session_state.keys()):
-        if key.startswith("_rendered_"):
+        if key.startswith("_rendered_") or key.startswith("_llm_fieldmap_") or key.startswith("_claim_dup_results_"):
             del st.session_state[key]
 
     file_hash  = _compute_file_sha256(excel_path)
@@ -195,7 +195,7 @@ if selected_sheet not in st.session_state.sheet_cache:
                 if isinstance(fd, dict) and "value" in fd:
                     row[fld] = {
                         "value":    fd["value"],
-                        "modified": fd.get("modified", fd["value"]),
+                        "modified": fd["value"],   # always reset to raw on load
                         "excel_row": fd.get("excel_row"),
                         "excel_col": fd.get("excel_col"),
                         "original": fd.get("original", fd["value"]),
@@ -216,9 +216,11 @@ if selected_sheet not in st.session_state.sheet_cache:
                 st.stop()
             for row in data:
                 for fld, inf in row.items():
-                    for key in ("value", "modified"):
-                        if key in inf and isinstance(inf[key], str):
-                            inf[key] = normalize_str(inf[key])
+                    # Normalise only the raw "value" — never auto-change "modified"
+                    if "value" in inf and isinstance(inf["value"], str):
+                        inf["value"] = normalize_str(inf["value"])
+                    # Keep modified in sync with value on fresh parse
+                    inf["modified"] = inf.get("value", "")
             _title_flds = extract_title_fields(merged_meta)
             data, _col_rename_log = rename_columns_to_standard(data)
 
@@ -304,20 +306,38 @@ if _active_schema_now and _active_schema_now in SCHEMAS and _normalized_for != _
     auto_normalize_on_schema_activate(data, _active_schema_now, selected_sheet)
     active["_normalized_for"] = _active_schema_now
 
-# LLM field-map
+# ── LLM field-map ─────────────────────────────────────────────────────────
+# Fires whenever columns look non-standard (schema active OR plain mode).
+# Uses Guidewire as the broadest reference schema for plain-mode mapping.
 _llm_map_result = {}
 _llm_map_ran    = False
 _llm_map_count  = 0
-if _active_schema_now and _active_schema_now in SCHEMAS and data:
-    _sample_keys = list(data[0].keys()) if data else []
-    if _has_unknown_fields(_sample_keys, _active_schema_now):
-        _llm_map_result = llm_map_unknown_fields(data[:5], _active_schema_now, selected_sheet)
+
+if data:
+    _sample_keys   = list(data[0].keys()) if data else []
+    _ref_schema    = _active_schema_now if (_active_schema_now and _active_schema_now in SCHEMAS) else "Guidewire"
+    _needs_llm_map = _has_unknown_fields(_sample_keys, _ref_schema)
+
+    if _needs_llm_map:
+        _llm_map_result = llm_map_unknown_fields(data[:5], _ref_schema, selected_sheet)
         _llm_map_count  = len(_llm_map_result.get("mappings", {}))
         _llm_map_ran    = _llm_map_count > 0
         if _llm_map_ran:
             active["_llm_field_map"] = _llm_map_result
+            # Apply LLM mappings to rename column keys in data in-place
+            # so detect_claim_id and nav panel work correctly
+            _llm_mappings = _llm_map_result.get("mappings", {})
+            _already_renamed = active.get("_llm_renamed", False)
+            if _llm_mappings and not _already_renamed:
+                from modules.normalization import rename_columns_to_standard
+                active["data"], _extra_renames = rename_columns_to_standard(
+                    active["data"], llm_map=_llm_map_result
+                )
+                data = active["data"]
+                active["_llm_renamed"] = True
     else:
         active.pop("_llm_field_map", None)
+
 _llm_map_result = active.get("_llm_field_map", {})
 
 # Field-value dup index

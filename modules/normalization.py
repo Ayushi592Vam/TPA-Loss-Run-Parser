@@ -185,6 +185,11 @@ def auto_normalize_claim(claim_data: dict, schema_name: str) -> dict:
 
 
 def auto_normalize_on_schema_activate(data: list, schema_name: str, selected_sheet: str) -> None:
+    """
+    Writes normalised values ONLY to session_state — never to claim["modified"].
+    This ensures the Extracted column always shows the raw Excel value.
+    Modified column only diverges when the user explicitly edits a field.
+    """
     from modules.schema_mapping import detect_claim_id
     for i, claim in enumerate(data):
         claim_id = detect_claim_id(claim, i)
@@ -192,12 +197,13 @@ def auto_normalize_on_schema_activate(data: list, schema_name: str, selected_she
         for field, new_val in changes.items():
             mk_schema = f"mod_{selected_sheet}_{claim_id}_schema_{field}"
             mk_plain  = f"mod_{selected_sheet}_{claim_id}_{field}"
+            # Only set if the user hasn't already edited manually
             if mk_schema not in st.session_state:
                 st.session_state[mk_schema] = new_val
             if mk_plain not in st.session_state:
                 st.session_state[mk_plain] = new_val
-            if field in claim:
-                claim[field]["modified"] = new_val
+            # DO NOT write to claim[field]["modified"] — that would change the
+            # Extracted column display which must always show the raw Excel value
 
 
 # ── Standard-name renamer ─────────────────────────────────────────────────────

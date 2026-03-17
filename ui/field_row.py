@@ -8,7 +8,7 @@ Used by both schema mode and plain mode in the claim panel.
 import streamlit as st
 
 from modules.audit import _append_audit
-from modules.field_history import _record_field_history, _get_field_history
+from modules.field_history import _record_field_history
 
 import datetime
 
@@ -40,9 +40,6 @@ def render_field_row(
     conf: int,
     excel_f: str,
     is_title_sourced: bool,
-    is_llm_mapped: bool,
-    dup_conf: int,
-    dup_others: list,
     # context
     selected_sheet: str,
     curr_claim_id: str,
@@ -54,25 +51,20 @@ def render_field_row(
     conf_thresh: int,
     # dialog callbacks (callables)
     open_eye_popup,
-    open_history_dialog,
 ) -> None:
     conf_col, row_border, row_bg = _conf_colors(conf, use_conf, conf_thresh)
-    if dup_conf > 0:
-        row_border = "rgba(248,113,113,0.5)"
-        row_bg     = "rgba(248,113,113,0.04)"
-
     # Initialise state
     if ek not in st.session_state:
         st.session_state[ek] = False
     if xk not in st.session_state:
         st.session_state[xk] = True
     if mk not in st.session_state:
-        from modules.normalization import auto_normalize_field
-        raw_val = info.get("modified", info["value"])
-        st.session_state[mk] = auto_normalize_field(schema_field, raw_val, active_schema or "")
+        # Always initialise from raw extracted value — Modified == Extracted on load
+        # Only diverges once the user explicitly edits the field
+        st.session_state[mk] = info.get("value", "")
 
-    _cur_val = st.session_state.get(mk, info.get("modified", info["value"]))
-    _edited  = _cur_val != info["value"]
+    _cur_val = st.session_state.get(mk, info.get("value", ""))
+    _edited  = _cur_val != info.get("value", "")
     _dot     = "<span style='color:var(--yellow);font-size:8px;'>●</span> " if _edited else ""
 
     # Badges
@@ -81,11 +73,6 @@ def render_field_row(
         if is_req
         else "<span class='optional-badge'>OPT</span>"
     )
-    if is_llm_mapped:
-        _badge_html += "<span class='llm-mapped-badge'>AI</span>"
-    if dup_conf > 0:
-        _dup_tip     = f"Same value in {len(dup_others)} other claim(s): {', '.join(dup_others[:3])}"
-        _badge_html += f"<span class='dup-field-badge' title='{_dup_tip}'>DUP·{dup_conf}%</span>"
 
     _ink              = "var(--t0)" if is_req else "var(--t1)"
     _field_label_html = (
@@ -113,7 +100,7 @@ def render_field_row(
     )
 
     def _edit_col():
-        _display_val = st.session_state.get(mk, info.get("modified", info["value"])) or ""
+        _display_val = st.session_state.get(mk, info.get("value", "")) or ""
         if st.session_state[ek]:
             with st.form(
                 key=f"form_s_{selected_sheet}_{curr_claim_id}_{schema_field}", border=False
@@ -151,7 +138,7 @@ def render_field_row(
             and excel_f in active["data"][st.session_state.selected_idx]
         ):
             active["data"][st.session_state.selected_idx][excel_f]["modified"] = (
-                st.session_state.get(mk, info.get("modified", info["value"])) or ""
+                st.session_state.get(mk, info.get("value", "")) or ""
             )
 
     def _edit_btn():
@@ -171,13 +158,9 @@ def render_field_row(
                 unsafe_allow_html=True,
             )
 
-    _hist         = _get_field_history(selected_sheet, curr_claim_id, schema_field)
-    _hist_ind     = f"<span style='font-size:9px;color:var(--yellow);margin-left:2px;'>({len(_hist)})</span>" if _hist else ""
-    _hist_lbl     = f"⏱{_hist_ind}" if _hist else "⏱"
-
     if use_conf:
-        cl, cc, co, cm, ce, cb, ch, cx = st.columns(
-            [1.8, 1.4, 1.6, 1.8, 0.45, 0.45, 0.45, 0.40], gap="small"
+        cl, cc, co, cm, ce, cb, cx = st.columns(
+            [1.8, 1.4, 1.6, 1.8, 0.45, 0.45, 0.40], gap="small"
         )
         with cl: st.markdown(_field_label_html, unsafe_allow_html=True)
         with cc: st.markdown(_conf_html, unsafe_allow_html=True)
@@ -196,24 +179,12 @@ def render_field_row(
             ):
                 open_eye_popup(schema_field, info, excel_path, selected_sheet)
         with cb: _edit_btn()
-        with ch:
-            if st.button(
-                _hist_lbl,
-                key=f"hist_s_{selected_sheet}_{curr_claim_id}_{schema_field}",
-                use_container_width=True,
-                help="View field history",
-            ):
-                open_history_dialog(
-                    schema_field, selected_sheet, curr_claim_id,
-                    st.session_state.get(mk, info.get("modified", info["value"])),
-                    info["value"],
-                )
         with cx:
             st.markdown("<div style='height:8px;'></div>", unsafe_allow_html=True)
             st.checkbox("", key=xk, label_visibility="collapsed")
     else:
-        cl, co, cm, ce, cb, ch, cx = st.columns(
-            [1.8, 1.8, 1.8, 0.45, 0.45, 0.45, 0.40], gap="small"
+        cl, co, cm, ce, cb, cx = st.columns(
+            [1.8, 1.8, 1.8, 0.45, 0.45, 0.40], gap="small"
         )
         with cl: st.markdown(_field_label_html, unsafe_allow_html=True)
         with co:
@@ -231,18 +202,6 @@ def render_field_row(
             ):
                 open_eye_popup(schema_field, info, excel_path, selected_sheet)
         with cb: _edit_btn()
-        with ch:
-            if st.button(
-                _hist_lbl,
-                key=f"hist_s_{selected_sheet}_{curr_claim_id}_{schema_field}",
-                use_container_width=True,
-                help="View field history",
-            ):
-                open_history_dialog(
-                    schema_field, selected_sheet, curr_claim_id,
-                    st.session_state.get(mk, info.get("modified", info["value"])),
-                    info["value"],
-                )
         with cx:
             st.markdown("<div style='height:8px;'></div>", unsafe_allow_html=True)
             st.checkbox("", key=xk, label_visibility="collapsed")

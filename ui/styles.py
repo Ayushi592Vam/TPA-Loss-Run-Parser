@@ -51,10 +51,10 @@ footer{display:none!important}
 .file-badge{font-family:var(--mono);font-size:10px;font-weight:600;padding:3px 10px;border-radius:20px;text-transform:uppercase;letter-spacing:1px}
 .badge-unique{background:var(--green-g);color:var(--green);border:1px solid rgba(52,211,153,.3)}
 .badge-duplicate{background:var(--yellow-g);color:var(--yellow);border:1px solid rgba(245,200,66,.3)}
-.file-card-body{display:grid;grid-template-columns:repeat(5,1fr);padding:16px 20px;gap:16px;background:var(--surface)}
+.file-card-body{display:grid;grid-template-columns:repeat(4,1fr);padding:18px 24px;gap:0;background:var(--surface)}
 .file-stat{display:flex;flex-direction:column;gap:5px}
-.file-stat-lbl{font-size:var(--sz-xs);font-weight:600;color:var(--t2);text-transform:uppercase;letter-spacing:1.4px;font-family:var(--mono)}
-.file-stat-val{font-size:var(--sz-body);font-weight:600;color:var(--t0);font-family:var(--font)}
+.file-stat-lbl{font-size:var(--sz-xs);font-weight:600;color:var(--t3);text-transform:uppercase;letter-spacing:1.8px;font-family:var(--mono);margin-bottom:6px}
+.file-stat-val{font-size:var(--sz-lg);font-weight:700;color:var(--t0);font-family:var(--font)}
 .file-stat-val.accent{color:var(--blue);font-weight:700}
 .file-stat-val.mono-sm{font-size:var(--sz-xs);color:var(--t2);letter-spacing:.3px;word-break:break-all;font-weight:400;font-family:var(--mono)}
 .file-card-sheets{padding:10px 20px 14px;border-top:1px solid var(--b0);background:var(--s0)}

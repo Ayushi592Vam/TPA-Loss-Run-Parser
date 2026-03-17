@@ -10,12 +10,11 @@ import re
 import streamlit as st
 
 from modules.audit import _append_audit
-from modules.field_history import _record_field_history, _get_field_history
+from modules.field_history import _record_field_history
 from modules.normalization import _best_standard_name, auto_normalize_field
-from modules.dup_detection import _field_dup_confidence
 from modules.schema_mapping import get_val, map_claim_to_schema
 from ui.field_row import render_field_row
-from ui.dialogs import show_eye_popup, show_field_history_dialog
+from ui.dialogs import show_eye_popup
 from ui.claim_dup_panel import render_claim_dup_panel
 
 
@@ -99,27 +98,21 @@ def _render_schema_mode(
         info          = m["info"]
         is_req        = m["is_required"]
         is_title_src  = m.get("from_title", False)
-        is_llm_mapped = m.get("llm_mapped", False)
 
         ek = f"edit_{selected_sheet}_{curr_claim_id}_schema_{schema_field}"
         mk = f"mod_{selected_sheet}_{curr_claim_id}_schema_{schema_field}"
         xk = f"chk_{selected_sheet}_{curr_claim_id}_schema_{schema_field}"
 
-        _cur_val = st.session_state.get(mk, info.get("modified", info["value"])) or ""
-        dup_conf, dup_others = _field_dup_confidence(_cur_val, excel_f, _field_dup_index)
-
         render_field_row(
             schema_field=schema_field, info=info,
             mk=mk, ek=ek, xk=xk,
             is_req=is_req, conf=conf, excel_f=excel_f,
-            is_title_sourced=is_title_src, is_llm_mapped=is_llm_mapped,
-            dup_conf=dup_conf, dup_others=dup_others,
+            is_title_sourced=is_title_src,
             selected_sheet=selected_sheet, curr_claim_id=curr_claim_id,
             active=active, excel_path=excel_path, uploaded_name=uploaded_name,
             active_schema=active_schema,
             use_conf=use_conf, conf_thresh=conf_thresh,
             open_eye_popup=show_eye_popup,
-            open_history_dialog=show_field_history_dialog,
         )
 
 
@@ -182,15 +175,9 @@ def _render_plain_mode(
         mk = f"mod_{selected_sheet}_{curr_claim_id}_{field}"
         if ek not in st.session_state: st.session_state[ek] = False
         if xk not in st.session_state: st.session_state[xk] = True
-        if mk not in st.session_state: st.session_state[mk] = info.get("modified", info["value"])
+        if mk not in st.session_state: st.session_state[mk] = info.get("value", "")
 
-        _cur_val_p              = st.session_state.get(mk, info.get("modified", info["value"])) or ""
-        dup_conf_p, dup_others_p = _field_dup_confidence(_cur_val_p, field, _field_dup_index)
-        _dup_badge_p = (
-            f"<span class='dup-field-badge' title='Same value in {len(dup_others_p)} claim(s)'>"
-            f"DUP·{dup_conf_p}%</span>"
-            if dup_conf_p > 0 else ""
-        )
+        _cur_val_p              = st.session_state.get(mk, info.get("value", "")) or ""
         _dot_p = "<span style='color:var(--yellow);margin-left:4px;font-size:8px;'>●</span>" if _cur_val_p != info["value"] else ""
 
         disp_name, _was_rule, _was_llm = _display_field_name(field)
@@ -218,7 +205,7 @@ def _render_plain_mode(
             f"<div style='color:var(--t0);font-size:var(--sz-body);font-weight:600;"
             f"text-transform:uppercase;letter-spacing:0.8px;font-family:var(--font-head);"
             f"display:flex;align-items:center;flex-wrap:wrap;gap:2px;'>"
-            f"{disp_name}{_renamed_badge}{_dot_p}{_dup_badge_p}</div>"
+            f"{disp_name}{_renamed_badge}{_dot_p}</div>"
             + (
                 f"<div style='font-size:9px;color:var(--t4);font-family:monospace;"
                 f"margin-top:1px;'>raw: {_orig_raw_title}</div>"
@@ -243,7 +230,7 @@ def _render_plain_mode(
         ) if use_conf else ""
 
         def _plain_edit_col(_field=field, _mk=mk, _ek=ek):
-            _plain_display_val = st.session_state.get(_mk, info.get("modified", info["value"])) or ""
+            _plain_display_val = st.session_state.get(_mk, info.get("value", "")) or ""
             if st.session_state[_ek]:
                 with st.form(
                     key=f"form_{selected_sheet}_{curr_claim_id}_{_field}", border=False
@@ -274,11 +261,8 @@ def _render_plain_mode(
                 )
             active["data"][st.session_state.selected_idx][_field]["modified"] = _plain_display_val
 
-        _hist_p  = _get_field_history(selected_sheet, curr_claim_id, field)
-        _hlbl_p  = f"⏱({len(_hist_p)})" if _hist_p else "⏱"
-
         if use_conf:
-            cl, cc, co, cm, ce, cb, ch, cx = st.columns([1.8, 1.2, 1.8, 1.8, 0.5, 0.5, 0.5, 0.4], gap="small")
+            cl, cc, co, cm, ce, cb, cx = st.columns([1.8, 1.2, 1.8, 1.8, 0.5, 0.5, 0.4], gap="small")
             with cl: st.markdown(_plain_field_label, unsafe_allow_html=True)
             with cc: st.markdown(_pconf_html, unsafe_allow_html=True)
             with co:
@@ -297,17 +281,11 @@ def _render_plain_mode(
                         st.session_state[ek] = True; st.rerun()
                 else:
                     st.markdown("<div style='height:38px;display:flex;align-items:center;justify-content:center;color:var(--green);font-size:11px;border:1px solid var(--b0);border-radius:6px;'>↵</div>", unsafe_allow_html=True)
-            with ch:
-                if st.button(_hlbl_p, key=f"hist_{selected_sheet}_{curr_claim_id}_{field}", use_container_width=True):
-                    show_field_history_dialog(
-                        field, selected_sheet, curr_claim_id,
-                        st.session_state.get(mk, info.get("modified", info["value"])), info["value"],
-                    )
             with cx:
                 st.markdown("<div style='height:8px;'></div>", unsafe_allow_html=True)
                 st.checkbox("", key=xk, label_visibility="collapsed")
         else:
-            cl, co, cm, ce, cb, ch, cx = st.columns([2, 2.4, 2.4, 0.5, 0.5, 0.5, 0.5], gap="small")
+            cl, co, cm, ce, cb, cx = st.columns([2, 2.4, 2.4, 0.5, 0.5, 0.5], gap="small")
             with cl: st.markdown(_plain_field_label, unsafe_allow_html=True)
             with co:
                 st.text_input(
@@ -325,12 +303,6 @@ def _render_plain_mode(
                         st.session_state[ek] = True; st.rerun()
                 else:
                     st.markdown("<div style='height:38px;display:flex;align-items:center;justify-content:center;color:var(--green);font-size:11px;border:1px solid var(--b0);border-radius:6px;'>↵</div>", unsafe_allow_html=True)
-            with ch:
-                if st.button(_hlbl_p, key=f"hist_{selected_sheet}_{curr_claim_id}_{field}", use_container_width=True):
-                    show_field_history_dialog(
-                        field, selected_sheet, curr_claim_id,
-                        st.session_state.get(mk, info.get("modified", info["value"])), info["value"],
-                    )
             with cx:
                 st.markdown("<div style='height:8px;'></div>", unsafe_allow_html=True)
                 st.checkbox("", key=xk, label_visibility="collapsed")
@@ -525,7 +497,7 @@ def render_claim_panel(
     st.markdown("<hr>", unsafe_allow_html=True)
 
     # Claim-level duplicate panel
-    render_claim_dup_panel(curr_claim_id, _claim_dup_results)
+    render_claim_dup_panel(curr_claim_id, _claim_dup_results, selected_sheet)
 
     # Field grid
     if active_schema and active_schema in SCHEMAS:

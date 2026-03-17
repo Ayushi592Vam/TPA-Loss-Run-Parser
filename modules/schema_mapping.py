@@ -18,26 +18,65 @@ import datetime
 # ── Utility ───────────────────────────────────────────────────────────────────
 
 def detect_claim_id(row: dict, index: int | None = None) -> str:
+    """
+    Detects claim ID from a row dict.
+    Works on both standardised and weird/original column names.
+    Priority: exact keyword match → similarity match → index fallback.
+    """
     keys = [
         "claim id", "claim_id", "claimid", "claim number", "claim no",
         "claim #", "claim ref", "claim reference", "file number", "record id",
+        "claim number", "clm id", "clm no", "clm#", "loss ref",
     ]
+    # Pass 1: exact keyword match on normalised column name
     for k, v in row.items():
         name = str(k).lower().replace("_", " ").strip()
         if any(x in name for x in keys):
             val = v.get("modified") or v.get("value")
             if val and str(val).strip():
                 return str(val)
+    # Pass 2: fuzzy similarity match (catches weird names like TOTALS_AGGREGATE_ZORP
+    # that have been LLM-mapped but original key is still used as dict key)
+    for k, v in row.items():
+        k_norm = str(k).lower().replace("_", " ").strip()
+        score  = max(_str_similarity(k_norm, kw) for kw in keys)
+        if score >= 0.55:
+            val = v.get("modified") or v.get("value")
+            if val and str(val).strip() and len(str(val).strip()) >= 2:
+                return str(val)
+    # Pass 3: look for any column whose VALUE looks like a claim ID
+    # (alphanumeric, 4-20 chars, contains letters)
+    import re as _re
+    for k, v in row.items():
+        val = str(v.get("modified") or v.get("value") or "").strip()
+        if _re.match(r"^[A-Z]{2,5}[-_]?[A-Z0-9]{2,15}$", val, _re.IGNORECASE):
+            return val
     if index is not None:
         return str(index + 1)
     return ""
 
 
 def get_val(claim: dict, keys: list, default: str = "") -> str:
+    """
+    Looks up a value in a claim row by any of the given key names.
+    Uses substring match first, then similarity match for non-standard columns.
+    """
+    # Pass 1: substring match (fast path)
     for pk in keys:
         for k, v in claim.items():
-            if pk.lower() in str(k).lower():
-                return v["value"] or default
+            if pk.lower() in str(k).lower() or str(k).lower() in pk.lower():
+                val = v.get("modified") or v.get("value") or ""
+                if val:
+                    return val
+    # Pass 2: similarity match for weird column names
+    for pk in keys:
+        for k, v in claim.items():
+            k_norm = str(k).lower().replace("_", " ").strip()
+            pk_norm = pk.lower().replace("_", " ").strip()
+            if _str_similarity(k_norm, pk_norm) >= 0.6:
+                val = v.get("modified") or v.get("value") or ""
+                if val:
+                    return val
     return default
 
 
@@ -254,22 +293,47 @@ def extract_title_fields(merged_meta: dict) -> dict:
 # ── Unknown-field detection + LLM field mapper ────────────────────────────────
 
 def _has_unknown_fields(claim_keys: list, schema_name: str) -> bool:
+    """
+    Returns True if ANY column in claim_keys cannot be matched to a known
+    schema field or alias. We intentionally keep the threshold low (1 column
+    is enough) so LLM always gets a chance to map truly weird column names.
+
+    Skips columns that are already standard names (already renamed by
+    rename_columns_to_standard) so we don't double-map them.
+    """
     from config.schemas import SCHEMAS
+    from modules.normalization import _best_standard_name
     if schema_name not in SCHEMAS:
         return False
     schema  = SCHEMAS[schema_name]
     aliases = schema.get("field_aliases", {})
+    accepted = set(f.lower() for f in schema.get("accepted_fields", []))
+
+    # Build flat set of all known alias tokens
     known_tokens: set = set()
     for field, als in aliases.items():
         known_tokens.add(field.lower())
         for a in als:
             known_tokens.add(a.lower())
+
     unrecognized = 0
     for k in claim_keys:
         k_norm = k.lower().replace("_", " ").strip()
-        if not any(_str_similarity(k_norm, tok) >= 0.7 for tok in known_tokens):
+
+        # Already a standard accepted field name → skip
+        if k_norm in accepted:
+            continue
+
+        # Already resolved by rule-based renamer → skip
+        if _best_standard_name(k) is not None:
+            continue
+
+        # Check similarity against all known tokens
+        if not any(_str_similarity(k_norm, tok) >= 0.65 for tok in known_tokens):
             unrecognized += 1
-    return unrecognized > 0 and unrecognized / max(len(claim_keys), 1) >= 0.30
+
+    # Trigger LLM if even 1 column is unrecognised
+    return unrecognized >= 1
 
 
 def llm_map_unknown_fields(sample_rows: list, schema_name: str, sheet_name: str) -> dict:

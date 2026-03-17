@@ -159,15 +159,16 @@ def enrich_claim_cause_of_loss(claim_data: dict, claim_id: str, selected_sheet: 
             col_val = "Other"
 
         if col_val:
+            # Store ONLY in session state — never touch claim_data["modified"]
+            # so the Extracted column always shows the raw Excel value
             for field_key in ["Cause of Loss", "Cause Of Loss", "cause_of_loss", "Cause_of_Loss"]:
                 for mk in (
                     f"mod_{selected_sheet}_{claim_id}_schema_{field_key}",
                     f"mod_{selected_sheet}_{claim_id}_{field_key}",
                 ):
-                    st.session_state[mk] = col_val
-            for k, info in claim_data.items():
-                if re.search(r"cause.?of.?loss", k, re.IGNORECASE):
-                    claim_data[k]["modified"] = col_val
+                    # Only set if user hasn't already edited it manually
+                    if mk not in st.session_state:
+                        st.session_state[mk] = col_val
 
         if summary:
             st.session_state[f"_col_summary_{selected_sheet}_{claim_id}"] = summary

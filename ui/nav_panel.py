@@ -51,10 +51,18 @@ def render_nav_panel(data: list, selected_sheet: str) -> int | None:
             c_id     = detect_claim_id(row_data, i)
             c_name   = get_val(
                 row_data,
-                ["Insured Name", "Name", "Company", "Claimant", "TPA_NAME"],
+                [
+                    "Insured Name", "Claimant Name", "Claimant", "Name",
+                    "Company", "TPA_NAME", "insured", "claimant",
+                    "injured party", "employee name", "driver name",
+                ],
                 "Unknown Entity",
             )
-            raw_st   = get_val(row_data, ["Status", "CLAIM_STATUS"], "")
+            raw_st   = get_val(
+                row_data,
+                ["Status", "Claim Status", "CLAIM_STATUS", "current status", "file status"],
+                "",
+            )
             c_status = raw_st or (
                 "Yet to Review" if i == 0 else "In Progress" if i == 1 else "Submitted"
             )
